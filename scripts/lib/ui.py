@@ -1,10 +1,14 @@
 """Terminal UI utilities for last30days skill."""
 
+import os
 import sys
 import time
 import threading
 import random
 from typing import Optional
+
+# Check if we're in a real terminal (not captured by Claude Code)
+IS_TTY = sys.stderr.isatty()
 
 # ANSI color codes
 class Colors:
@@ -82,6 +86,7 @@ class Spinner:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.frame_idx = 0
+        self.shown_static = False
 
     def _spin(self):
         while self.running:
@@ -93,20 +98,33 @@ class Spinner:
 
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._spin, daemon=True)
-        self.thread.start()
+        if IS_TTY:
+            # Real terminal - animate
+            self.thread = threading.Thread(target=self._spin, daemon=True)
+            self.thread.start()
+        else:
+            # Not a TTY (Claude Code) - just print once
+            if not self.shown_static:
+                sys.stderr.write(f"⏳ {self.message}\n")
+                sys.stderr.flush()
+                self.shown_static = True
 
     def update(self, message: str):
         self.message = message
+        if not IS_TTY and not self.shown_static:
+            # Print update in non-TTY mode
+            sys.stderr.write(f"⏳ {message}\n")
+            sys.stderr.flush()
 
     def stop(self, final_message: str = ""):
         self.running = False
         if self.thread:
             self.thread.join(timeout=0.2)
-        # Clear the line
-        sys.stderr.write("\r" + " " * 80 + "\r")
+        if IS_TTY:
+            # Clear the line in real terminal
+            sys.stderr.write("\r" + " " * 80 + "\r")
         if final_message:
-            sys.stderr.write(f"{Colors.GREEN}✓{Colors.RESET} {final_message}\n")
+            sys.stderr.write(f"✓ {final_message}\n")
         sys.stderr.flush()
 
 
@@ -122,8 +140,12 @@ class ProgressDisplay:
             self._show_banner()
 
     def _show_banner(self):
-        sys.stderr.write(MINI_BANNER + "\n")
-        sys.stderr.write(f"{Colors.DIM}Topic: {Colors.RESET}{Colors.BOLD}{self.topic}{Colors.RESET}\n\n")
+        if IS_TTY:
+            sys.stderr.write(MINI_BANNER + "\n")
+            sys.stderr.write(f"{Colors.DIM}Topic: {Colors.RESET}{Colors.BOLD}{self.topic}{Colors.RESET}\n\n")
+        else:
+            # Simple text for non-TTY
+            sys.stderr.write(f"/last30days · researching: {self.topic}\n")
         sys.stderr.flush()
 
     def start_reddit(self):
@@ -171,10 +193,13 @@ class ProgressDisplay:
 
     def show_complete(self, reddit_count: int, x_count: int):
         elapsed = time.time() - self.start_time
-        sys.stderr.write(f"\n{Colors.GREEN}{Colors.BOLD}✓ Research complete{Colors.RESET} ")
-        sys.stderr.write(f"{Colors.DIM}({elapsed:.1f}s){Colors.RESET}\n")
-        sys.stderr.write(f"  {Colors.YELLOW}Reddit:{Colors.RESET} {reddit_count} threads  ")
-        sys.stderr.write(f"{Colors.CYAN}X:{Colors.RESET} {x_count} posts\n\n")
+        if IS_TTY:
+            sys.stderr.write(f"\n{Colors.GREEN}{Colors.BOLD}✓ Research complete{Colors.RESET} ")
+            sys.stderr.write(f"{Colors.DIM}({elapsed:.1f}s){Colors.RESET}\n")
+            sys.stderr.write(f"  {Colors.YELLOW}Reddit:{Colors.RESET} {reddit_count} threads  ")
+            sys.stderr.write(f"{Colors.CYAN}X:{Colors.RESET} {x_count} posts\n\n")
+        else:
+            sys.stderr.write(f"✓ Research complete ({elapsed:.1f}s) - Reddit: {reddit_count} threads, X: {x_count} posts\n")
         sys.stderr.flush()
 
     def show_cached(self, age_hours: float = None):
