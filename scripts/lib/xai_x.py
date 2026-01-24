@@ -125,6 +125,13 @@ def parse_x_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     items = []
 
+    # Check for API errors first
+    if "error" in response and response["error"]:
+        error = response["error"]
+        err_msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+        print(f"[X ERROR] xAI API error: {err_msg}", flush=True)
+        return items
+
     # Try to find the output text
     output_text = ""
     if "output" in response:

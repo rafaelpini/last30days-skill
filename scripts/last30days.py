@@ -133,14 +133,25 @@ def run_research(
         if mock:
             raw_xai = load_fixture("xai_sample.json")
         else:
-            raw_xai = xai_x.search_x(
-                config["XAI_API_KEY"],
-                selected_models["xai"],
-                topic,
-                from_date,
-                to_date,
-                depth=depth,
-            )
+            try:
+                raw_xai = xai_x.search_x(
+                    config["XAI_API_KEY"],
+                    selected_models["xai"],
+                    topic,
+                    from_date,
+                    to_date,
+                    depth=depth,
+                )
+            except http.HTTPError as e:
+                if progress:
+                    progress.show_error(f"X API failed: {e}")
+                raw_xai = {"error": str(e)}
+                x_error = f"API error: {e}"
+            except Exception as e:
+                if progress:
+                    progress.show_error(f"X error: {e}")
+                raw_xai = {"error": str(e)}
+                x_error = f"{type(e).__name__}: {e}"
 
         # Parse response
         x_items = xai_x.parse_x_response(raw_xai)
