@@ -2,9 +2,16 @@
 
 import json
 import re
+import sys
 from typing import Any, Dict, List, Optional
 
 from . import http
+
+
+def _log_error(msg: str):
+    """Log error to stderr."""
+    sys.stderr.write(f"[REDDIT ERROR] {msg}\n")
+    sys.stderr.flush()
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
@@ -120,7 +127,9 @@ def parse_reddit_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:
     if "error" in response and response["error"]:
         error = response["error"]
         err_msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
-        print(f"[REDDIT ERROR] OpenAI API error: {err_msg}", flush=True)
+        _log_error(f"OpenAI API error: {err_msg}")
+        if http.DEBUG:
+            _log_error(f"Full error response: {json.dumps(response, indent=2)[:1000]}")
         return items
 
     # Try to find the output text

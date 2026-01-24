@@ -11,10 +11,12 @@ Options:
     --sources=MODE      Source selection: auto|reddit|x|both (default: auto)
     --quick             Faster research with fewer sources (8-12 each)
     --deep              Comprehensive research with more sources (50-70 Reddit, 40-60 X)
+    --debug             Enable verbose debug logging
 """
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -190,8 +192,20 @@ def main():
         action="store_true",
         help="Comprehensive research with more sources (50-70 Reddit, 40-60 X)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose debug logging",
+    )
 
     args = parser.parse_args()
+
+    # Enable debug logging if requested
+    if args.debug:
+        os.environ["LAST30DAYS_DEBUG"] = "1"
+        # Re-import http to pick up debug flag
+        from lib import http as http_module
+        http_module.DEBUG = True
 
     # Determine depth
     if args.quick and args.deep:

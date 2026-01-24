@@ -1,6 +1,8 @@
 """HTTP utilities for last30days skill (stdlib only)."""
 
 import json
+import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -8,6 +10,14 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 DEFAULT_TIMEOUT = 30
+DEBUG = os.environ.get("LAST30DAYS_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def log(msg: str):
+    """Log debug message to stderr."""
+    if DEBUG:
+        sys.stderr.write(f"[DEBUG] {msg}\n")
+        sys.stderr.flush()
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0
 USER_AGENT = "last30days-skill/1.0 (Claude Code Skill)"
@@ -55,11 +65,16 @@ def request(
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
 
+    log(f"{method} {url}")
+    if json_data:
+        log(f"Payload keys: {list(json_data.keys())}")
+
     last_error = None
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 body = response.read().decode('utf-8')
+                log(f"Response: {response.status} ({len(body)} bytes)")
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as e:
             body = None
@@ -67,6 +82,9 @@ def request(
                 body = e.read().decode('utf-8')
             except:
                 pass
+            log(f"HTTP Error {e.code}: {e.reason}")
+            if body:
+                log(f"Error body: {body[:500]}")
             last_error = HTTPError(f"HTTP {e.code}: {e.reason}", e.code, body)
 
             # Don't retry client errors (4xx) except rate limits
@@ -76,10 +94,12 @@ def request(
             if attempt < retries - 1:
                 time.sleep(RETRY_DELAY * (attempt + 1))
         except urllib.error.URLError as e:
+            log(f"URL Error: {e.reason}")
             last_error = HTTPError(f"URL Error: {e.reason}")
             if attempt < retries - 1:
                 time.sleep(RETRY_DELAY * (attempt + 1))
         except json.JSONDecodeError as e:
+            log(f"JSON decode error: {e}")
             last_error = HTTPError(f"Invalid JSON response: {e}")
             raise last_error
 
