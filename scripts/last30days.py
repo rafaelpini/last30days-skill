@@ -120,6 +120,27 @@ def run_research(
         # Parse response
         reddit_items = openai_reddit.parse_reddit_response(raw_openai)
 
+        # Quick retry with simpler query if few results
+        if len(reddit_items) < 5 and not mock:
+            core = openai_reddit._extract_core_subject(topic)
+            if core.lower() != topic.lower():
+                try:
+                    retry_raw = openai_reddit.search_reddit(
+                        config["OPENAI_API_KEY"],
+                        selected_models["openai"],
+                        core,
+                        from_date, to_date,
+                        depth=depth,
+                    )
+                    retry_items = openai_reddit.parse_reddit_response(retry_raw)
+                    # Add items not already found (by URL)
+                    existing_urls = {item.get("url") for item in reddit_items}
+                    for item in retry_items:
+                        if item.get("url") not in existing_urls:
+                            reddit_items.append(item)
+                except Exception:
+                    pass
+
         if progress:
             progress.end_reddit(len(reddit_items))
 

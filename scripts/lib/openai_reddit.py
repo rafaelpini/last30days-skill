@@ -66,6 +66,16 @@ Return JSON:
 }}"""
 
 
+def _extract_core_subject(topic: str) -> str:
+    """Extract core subject from verbose query for retry."""
+    noise = ['best', 'top', 'how to', 'tips for', 'practices', 'features',
+             'killer', 'guide', 'tutorial', 'recommendations', 'advice',
+             'prompting', 'using', 'for', 'with', 'the', 'of', 'in', 'on']
+    words = topic.lower().split()
+    result = [w for w in words if w not in noise]
+    return ' '.join(result[:3]) or topic  # Keep max 3 words
+
+
 def search_reddit(
     api_key: str,
     model: str,
@@ -74,6 +84,7 @@ def search_reddit(
     to_date: str,
     depth: str = "default",
     mock_response: Optional[Dict] = None,
+    _retry: bool = False,
 ) -> Dict[str, Any]:
     """Search Reddit for relevant threads using OpenAI Responses API.
 
