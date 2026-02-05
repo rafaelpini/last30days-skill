@@ -1,6 +1,6 @@
 ---
 name: last30days
-description: Research a topic from the last 30 days on Reddit + X + Web, become an expert, and write copy-paste-ready prompts for the user's target tool.
+description: Research a topic from the last 30 days on Reddit + X + Hacker News + Web, become an expert, and write copy-paste-ready prompts for the user's target tool.
 argument-hint: "[topic] for [tool]" or "[topic]"
 context: fork
 agent: Explore
@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, AskUserQuestion, WebSearch
 
 # last30days: Research Any Topic from the Last 30 Days
 
-Research ANY topic across Reddit, X, and the web. Surface what people are actually discussing, recommending, and debating right now.
+Research ANY topic across Reddit, X, Hacker News, and the web. Surface what people are actually discussing, recommending, and debating right now.
 
 Use cases:
 - **Prompting**: "photorealistic people in Nano Banana Pro", "Midjourney prompts", "ChatGPT image generation" → learn techniques, get copy-paste prompts
@@ -50,13 +50,14 @@ Common patterns:
 
 ## Setup Check
 
-The skill works in three modes based on available API keys:
+The skill works in multiple modes based on available API keys:
 
-1. **Full Mode** (both keys): Reddit + X + WebSearch - best results with engagement metrics
-2. **Partial Mode** (one key): Reddit-only or X-only + WebSearch
-3. **Web-Only Mode** (no keys): WebSearch only - still useful, but no engagement metrics
+1. **Full Mode** (both keys): Reddit + X + HN + WebSearch - best results with engagement metrics
+2. **Partial Mode** (one key): Reddit-only or X-only + HN + WebSearch
+3. **HN + Web Mode** (no keys): Hacker News + WebSearch - HN is free, no API key needed!
 
-**API keys are OPTIONAL.** The skill will work without them using WebSearch fallback.
+**Hacker News is ALWAYS available** - it uses the free Algolia HN Search API.
+**Reddit/X API keys are OPTIONAL.** The skill will work without them using HN + WebSearch.
 
 ### First-Time Setup (Optional but Recommended)
 
@@ -97,6 +98,7 @@ The script will automatically:
 - Detect available API keys
 - Show a promo banner if keys are missing (this is intentional marketing)
 - Run Reddit/X searches if keys exist
+- ALWAYS run Hacker News search (free, no API key needed)
 - Signal if WebSearch is needed
 
 **Step 2: Check the output mode**
@@ -156,11 +158,13 @@ Use TaskOutput to get the script results before proceeding to synthesis.
 **After all searches complete, internally synthesize (don't display stats yet):**
 
 The Judge Agent must:
-1. Weight Reddit/X sources HIGHER (they have engagement signals: upvotes, likes)
+1. Weight Reddit/HN/X sources HIGHER (they have engagement signals: upvotes, points, likes)
 2. Weight WebSearch sources LOWER (no engagement data)
-3. Identify patterns that appear across ALL three sources (strongest signals)
+3. Identify patterns that appear across ALL sources (strongest signals)
 4. Note any contradictions between sources
 5. Extract the top 3-5 actionable insights
+
+Note: HN sources are especially valuable for technical/developer topics - treat them on par with Reddit.
 
 **Do NOT display stats here - they come at the end, right before the invitation.**
 
@@ -244,19 +248,21 @@ For **full/partial mode** (has API keys):
 ---
 ✅ All agents reported back!
 ├─ 🟠 Reddit: {n} threads │ {sum} upvotes │ {sum} comments
+├─ 🟠 HN: {n} stories │ {sum} points │ {sum} comments
 ├─ 🔵 X: {n} posts │ {sum} likes │ {sum} reposts
 ├─ 🌐 Web: {n} pages │ {domains}
-└─ Top voices: r/{sub1}, r/{sub2} │ @{handle1}, @{handle2} │ {web_author} on {site}
+└─ Top voices: r/{sub1}, r/{sub2} │ HN:{author} │ @{handle1}, @{handle2} │ {web_author} on {site}
 ```
 
-For **web-only mode** (no API keys):
+For **HN + web mode** (no API keys):
 ```
 ---
 ✅ Research complete!
+├─ 🟠 HN: {n} stories │ {sum} points │ {sum} comments
 ├─ 🌐 Web: {n} pages │ {domains}
-└─ Top sources: {author1} on {site1}, {author2} on {site2}
+└─ Top sources: HN:{author1}, {author2} on {site2}
 
-💡 Want engagement metrics? Add API keys to ~/.config/last30days/.env
+💡 Want more engagement metrics? Add API keys to ~/.config/last30days/.env
    - OPENAI_API_KEY → Reddit (real upvotes & comments)
    - XAI_API_KEY → X/Twitter (real likes & reposts)
 ```
@@ -358,7 +364,7 @@ For the rest of this conversation, remember:
 
 When the user asks follow-up questions:
 - **DO NOT run new WebSearches** - you already have the research
-- **Answer from what you learned** - cite the Reddit threads, X posts, and web sources
+- **Answer from what you learned** - cite the Reddit threads, HN stories, X posts, and web sources
 - **If they ask for a prompt** - write one using your expertise
 - **If they ask a question** - answer it from your research findings
 
@@ -374,16 +380,16 @@ For **full/partial mode**:
 ```
 ---
 📚 Expert in: {TOPIC} for {TARGET_TOOL}
-📊 Based on: {n} Reddit threads ({sum} upvotes) + {n} X posts ({sum} likes) + {n} web pages
+📊 Based on: {n} Reddit threads ({sum} upvotes) + {n} HN stories ({sum} points) + {n} X posts ({sum} likes) + {n} web pages
 
 Want another prompt? Just tell me what you're creating next.
 ```
 
-For **web-only mode**:
+For **HN + web mode**:
 ```
 ---
 📚 Expert in: {TOPIC} for {TARGET_TOOL}
-📊 Based on: {n} web pages from {domains}
+📊 Based on: {n} HN stories ({sum} points) + {n} web pages from {domains}
 
 Want another prompt? Just tell me what you're creating next.
 

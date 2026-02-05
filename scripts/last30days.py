@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-last30days - Research a topic from the last 30 days on Reddit + X.
+last30days - Research a topic from the last 30 days on Reddit + X + Hacker News.
 
 Usage:
     python3 last30days.py <topic> [options]
@@ -12,6 +12,7 @@ Options:
     --quick             Faster research with fewer sources (8-12 each)
     --deep              Comprehensive research with more sources (50-70 Reddit, 40-60 X)
     --debug             Enable verbose debug logging
+    --no-hn             Disable Hacker News search (enabled by default, free)
 """
 
 import argparse
@@ -30,6 +31,7 @@ from lib import (
     dates,
     dedupe,
     env,
+    hn_search,
     http,
     models,
     normalize,
@@ -158,6 +160,46 @@ def _search_x(
     return x_items, raw_xai, x_error
 
 
+def _search_hn(
+    topic: str,
+    from_date: str,
+    to_date: str,
+    depth: str,
+    mock: bool,
+) -> tuple:
+    """Search Hacker News via Algolia API (runs in thread).
+
+    No API key required - Algolia HN Search API is free.
+
+    Returns:
+        Tuple of (hn_items, raw_hn, error)
+    """
+    raw_hn = None
+    hn_error = None
+
+    if mock:
+        raw_hn = load_fixture("hn_sample.json")
+    else:
+        try:
+            raw_hn = hn_search.search_hn(
+                topic,
+                from_date,
+                to_date,
+                depth=depth,
+            )
+        except http.HTTPError as e:
+            raw_hn = {"error": str(e)}
+            hn_error = f"API error: {e}"
+        except Exception as e:
+            raw_hn = {"error": str(e)}
+            hn_error = f"{type(e).__name__}: {e}"
+
+    # Parse response
+    hn_items = hn_search.parse_hn_response(raw_hn or {})
+
+    return hn_items, raw_hn, hn_error
+
+
 def run_research(
     topic: str,
     sources: str,
@@ -168,43 +210,58 @@ def run_research(
     depth: str = "default",
     mock: bool = False,
     progress: ui.ProgressDisplay = None,
+    include_hn: bool = True,
 ) -> tuple:
     """Run the research pipeline.
 
     Returns:
-        Tuple of (reddit_items, x_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error)
+        Tuple of (reddit_items, x_items, hn_items, web_needed, raw_openai, raw_xai, raw_hn, raw_reddit_enriched, reddit_error, x_error, hn_error)
 
     Note: web_needed is True when WebSearch should be performed by Claude.
     The script outputs a marker and Claude handles WebSearch in its session.
+    HN search is always included by default (free, no API key needed).
     """
     reddit_items = []
     x_items = []
+    hn_items = []
     raw_openai = None
     raw_xai = None
+    raw_hn = None
     raw_reddit_enriched = []
     reddit_error = None
     x_error = None
+    hn_error = None
 
     # Check if WebSearch is needed (always needed in web-only mode)
     web_needed = sources in ("all", "web", "reddit-web", "x-web")
 
-    # Web-only mode: no API calls needed, Claude handles everything
+    # Web-only mode: still run HN (it's free), but no Reddit/X
     if sources == "web":
         if progress:
             progress.start_web_only()
             progress.end_web_only()
-        return reddit_items, x_items, True, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error
+        # Still search HN even in web-only mode since it's free
+        if include_hn:
+            if progress:
+                progress.start_hn()
+            hn_items, raw_hn, hn_error = _search_hn(topic, from_date, to_date, depth, mock)
+            if hn_error and progress:
+                progress.show_error(f"HN error: {hn_error}")
+            if progress:
+                progress.end_hn(len(hn_items))
+        return reddit_items, x_items, hn_items, True, raw_openai, raw_xai, raw_hn, raw_reddit_enriched, reddit_error, x_error, hn_error
 
     # Determine which searches to run
     run_reddit = sources in ("both", "reddit", "all", "reddit-web")
     run_x = sources in ("both", "x", "all", "x-web")
 
-    # Run Reddit and X searches in parallel
+    # Run Reddit, X, and HN searches in parallel
     reddit_future = None
     x_future = None
+    hn_future = None
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        # Submit both searches
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit all searches
         if run_reddit:
             if progress:
                 progress.start_reddit()
@@ -219,6 +276,14 @@ def run_research(
             x_future = executor.submit(
                 _search_x, topic, config, selected_models,
                 from_date, to_date, depth, mock
+            )
+
+        # HN search is always enabled by default (free, no API key)
+        if include_hn:
+            if progress:
+                progress.start_hn()
+            hn_future = executor.submit(
+                _search_hn, topic, from_date, to_date, depth, mock
             )
 
         # Collect results
@@ -246,6 +311,18 @@ def run_research(
             if progress:
                 progress.end_x(len(x_items))
 
+        if hn_future:
+            try:
+                hn_items, raw_hn, hn_error = hn_future.result()
+                if hn_error and progress:
+                    progress.show_error(f"HN error: {hn_error}")
+            except Exception as e:
+                hn_error = f"{type(e).__name__}: {e}"
+                if progress:
+                    progress.show_error(f"HN error: {e}")
+            if progress:
+                progress.end_hn(len(hn_items))
+
     # Enrich Reddit items with real data (sequential, but with error handling per-item)
     if reddit_items:
         if progress:
@@ -271,12 +348,12 @@ def run_research(
         if progress:
             progress.end_reddit_enrich()
 
-    return reddit_items, x_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error
+    return reddit_items, x_items, hn_items, web_needed, raw_openai, raw_xai, raw_hn, raw_reddit_enriched, reddit_error, x_error, hn_error
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Research a topic from the last 30 days on Reddit + X"
+        description="Research a topic from the last 30 days on Reddit + X + Hacker News"
     )
     parser.add_argument("topic", nargs="?", help="Topic to research")
     parser.add_argument("--mock", action="store_true", help="Use fixtures")
@@ -311,6 +388,11 @@ def main():
         "--include-web",
         action="store_true",
         help="Include general web search alongside Reddit/X (lower weighted)",
+    )
+    parser.add_argument(
+        "--no-hn",
+        action="store_true",
+        help="Disable Hacker News search (enabled by default, free)",
     )
 
     args = parser.parse_args()
@@ -410,7 +492,8 @@ def main():
         mode = sources
 
     # Run research
-    reddit_items, x_items, web_needed, raw_openai, raw_xai, raw_reddit_enriched, reddit_error, x_error = run_research(
+    include_hn = not args.no_hn
+    reddit_items, x_items, hn_items, web_needed, raw_openai, raw_xai, raw_hn, raw_reddit_enriched, reddit_error, x_error, hn_error = run_research(
         args.topic,
         sources,
         config,
@@ -420,6 +503,7 @@ def main():
         depth,
         args.mock,
         progress,
+        include_hn,
     )
 
     # Processing phase
@@ -428,23 +512,28 @@ def main():
     # Normalize items
     normalized_reddit = normalize.normalize_reddit_items(reddit_items, from_date, to_date)
     normalized_x = normalize.normalize_x_items(x_items, from_date, to_date)
+    normalized_hn = normalize.normalize_hn_items(hn_items, from_date, to_date)
 
     # Hard date filter: exclude items with verified dates outside the range
     # This is the safety net - even if prompts let old content through, this filters it
     filtered_reddit = normalize.filter_by_date_range(normalized_reddit, from_date, to_date)
     filtered_x = normalize.filter_by_date_range(normalized_x, from_date, to_date)
+    filtered_hn = normalize.filter_by_date_range(normalized_hn, from_date, to_date)
 
     # Score items
     scored_reddit = score.score_reddit_items(filtered_reddit)
     scored_x = score.score_x_items(filtered_x)
+    scored_hn = score.score_hn_items(filtered_hn)
 
     # Sort items
     sorted_reddit = score.sort_items(scored_reddit)
     sorted_x = score.sort_items(scored_x)
+    sorted_hn = score.sort_items(scored_hn)
 
     # Dedupe items
     deduped_reddit = dedupe.dedupe_reddit(sorted_reddit)
     deduped_x = dedupe.dedupe_x(sorted_x)
+    deduped_hn = dedupe.dedupe_hn(sorted_hn)
 
     progress.end_processing()
 
@@ -459,20 +548,22 @@ def main():
     )
     report.reddit = deduped_reddit
     report.x = deduped_x
+    report.hn = deduped_hn
     report.reddit_error = reddit_error
     report.x_error = x_error
+    report.hn_error = hn_error
 
     # Generate context snippet
     report.context_snippet_md = render.render_context_snippet(report)
 
     # Write outputs
-    render.write_outputs(report, raw_openai, raw_xai, raw_reddit_enriched)
+    render.write_outputs(report, raw_openai, raw_xai, raw_hn, raw_reddit_enriched)
 
     # Show completion
     if sources == "web":
         progress.show_web_only_complete()
     else:
-        progress.show_complete(len(deduped_reddit), len(deduped_x))
+        progress.show_complete(len(deduped_reddit), len(deduped_x), len(deduped_hn))
 
     # Output result
     output_result(report, args.emit, web_needed, args.topic, from_date, to_date, missing_keys)
@@ -508,12 +599,12 @@ def output_result(
         print(f"Date range: {from_date} to {to_date}")
         print("")
         print("Claude: Use your WebSearch tool to find 8-15 relevant web pages.")
-        print("EXCLUDE: reddit.com, x.com, twitter.com (already covered above)")
+        print("EXCLUDE: reddit.com, x.com, twitter.com, news.ycombinator.com (already covered above)")
         print("INCLUDE: blogs, docs, news, tutorials from the last 30 days")
         print("")
-        print("After searching, synthesize WebSearch results WITH the Reddit/X")
+        print("After searching, synthesize WebSearch results WITH the Reddit/X/HN")
         print("results above. WebSearch items should rank LOWER than comparable")
-        print("Reddit/X items (they lack engagement metrics).")
+        print("Reddit/X/HN items (they lack engagement metrics).")
         print("="*60)
 
 
